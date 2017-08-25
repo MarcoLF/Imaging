@@ -1,50 +1,3 @@
-# Multiple plot function
-#
-# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
-# - cols:   Number of columns in layout
-# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
-#
-# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
-# then plot 1 will go in the upper left, 2 will go in the upper right, and
-# 3 will go all the way across the bottom.
-#
-multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
-  library(grid)
-  
-  # Make a list from the ... arguments and plotlist
-  plots <- c(list(...), plotlist)
-  
-  numPlots = length(plots)
-  
-  # If layout is NULL, then use 'cols' to determine layout
-  if (is.null(layout)) {
-    # Make the panel
-    # ncol: Number of columns of plots
-    # nrow: Number of rows needed, calculated from # of cols
-    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
-                     ncol = cols, nrow = ceiling(numPlots/cols))
-  }
-  
-  if (numPlots==1) {
-    print(plots[[1]])
-    
-  } else {
-    # Set up the page
-    grid.newpage()
-    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
-    
-    # Make each plot, in the correct location
-    for (i in 1:numPlots) {
-      # Get the i,j matrix positions of the regions that contain this subplot
-      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
-      
-      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
-                                      layout.pos.col = matchidx$col))
-    }
-  }
-}
-
-library(ggplot2)
 library(grid)
 library(plyr)
 library(spatstat)
@@ -53,57 +6,94 @@ library(Hmisc)
 library(gridExtra)
 
 
-file = c("Image_5709.csv", "Image_5708.csv");
 
 
+#Define INPUT and OUTPUT paths
 inpt = "~/Desktop/microscopy/"
 out = "~/Desktop/microscopy/"
 
+#imgTable is a fucntion that append .csv file generated in FIJI to each other.
+#it ads informations about biological replicates, tecnical replicates, and name of the experiment as well as genotype.
+#WARNING: imgTable deals with equal number of sample (bio/tec rep) per genotype you want to compare. In addition, the analysis of
+#         only one genotype doesn't full fill the scope of this function. For one genotype/condition comparison check: imgTecRep().
 
-table = function(file, inpt, out, bio, name, exp) {
+imgTable = function(names, inpt, out, bio, genotypes, exp) {
   
-  datalist=list()
+  datalist=list() #generates a list where to store your temporary files
   
+  #generates two vectors that will consider the number of biological replicates and tecnical replicates
   if (bio != 1) {
-    bio.rep = rep(rep(1:bio, each = bio), length(name));
-    tec = rep(c(1:(bio)), bio*length(name));
+    bio.rep = rep(rep(1:bio, each = bio), length(names));
+    tec = rep(c(1:(bio)), bio*length(names));
   }
+  #generates two vectors for biological replicater (always 1) and technical replicates (corresponding to the numeber
+  #of samples) when bio = 1
   else {
-    bio.rep = c(rep(bio, length(file)));
-    tec = rep(c(1:length(file)), bio);
+    bio.rep = c(rep(bio, length(names)));
+    tec = rep(c(1:length(names)), bio);
   }
   
-  
-  if (length(name) != 1) {
-    geno = rep(name, each = length(file)/length(name))
+  #generates one vector of names that corresponds to the number of samples. WARNING: number of names/gneotypes MUST be a multiple
+  #of the number of samples (equal number of samples per genotype)
+  if (length(genotypes) != 1) {
+    geno = rep(genotypes, each = length(names)/length(genotypes))
   }
   else{
-    print = "Non va bene";
+    print("WARNING: Check out your inputs! You must submit more than one genotype!");  #returns an error when only one genotype is given
   }
   
-  for (i in (1:length(file))) 
+  #for loop to generate temporal file per each sample and genotype
+  for (i in (1:length(names))) 
     {
-    df = read.table(paste0(inpt, file[i]), sep=",", header=T);
-    df$genotype = rep(geno[i], length(df[,1]));
-    df.n = df[, c(3:4)];
-    df$nearest = nndist(df.n);
-    df$tec.rep = rep(tec[i], length(df[,1]));
-    df$bio.rep = rep(bio.rep[i], length(df[,1]));
-    df$source = rep(file[i], length(df[,1]));
-    datalist[[i]] = df
+    df = read.table(paste0(inpt, names[i]), sep=",", header=T);  #import data
+    df$genotype = rep(geno[i], length(df[,1]));                 #column with genotype name
+    df.n = df[, c(3:4)];                                        #extract only centroid coordinates
+    df$nearest = nndist(df.n);                                  #calculates the minimal distances between centroids coordinates
+    df$tec.rep = rep(tec[i], length(df[,1]));                   #annotates technical replicate
+    df$bio.rep = rep(bio.rep[i], length(df[,1]));               #annotates biological replicate
+    df$source = rep(file[i], length(df[,1]));                   #annotetes file name (file origin)
+    datalist[[i]] = df                                          #store the final data.frame inside the list 
   }
   
-  all = do.call(rbind, datalist);
-  write.table(all, paste0(out, exp, "_", max(tec), "_", max(bio.rep), ".txt"),
+  final.df = do.call(rbind, datalist);     #binds all the data.frame generated by rows
+  #saves output
+  write.table(final.df, paste0(out, exp, "_", max(tec), "_", max(bio.rep), ".txt"),
               sep = "\t", quote = F, col.names = T, row.names = F);
+  
+  print(paste0("your new file is called: ", exp, "_", max(tec), "_", max(bio.rep), ".txt"));
+  print(paste0("PATH: ",out, exp, "_", max(tec), "_", max(bio.rep), ".txt"));
 }
 
 
-name = c("KF32", "GJV1") 
-file = c("Image_5708.csv", "Image_5709.csv", "Image_5710.csv", "Image_5711.csv",
-         "Image_5708.csv", "Image_5709.csv", "Image_5710.csv", "Image_5711.csv");
-table(file, inpt, out, bio = 2, name, "exp")
+imgTecRep = function(names, inpt, out, genotype, exp) {
+  
+  datalist = list()
+  
+  for (i in (1:length(names))) {
+    
+    tec.rep = c(1:length(names));
+    
+    df = read.table(paste0(inpt, names[i]), sep = ",", header = T); #import data
+    df$tec.rep = rep(tec.rep[i], length(df[,1]));               #annotates technical replicate number
+    df$genotype = rep(genotype, length(df[,1]));                #column with genotype name
+    df.n = df[, c(3:4)];                                        #extract only centroid coordinates
+    df$nearest = nndist(df.n);                                  #calculates the minimal distances between centroids coordinates
+    df$source = rep(names[i], length(df[,1]));                   #annotetes file name (file origin)
+    datalist[[i]] = df                                          #store the final data.frame inside the list
+  }
+  
+  final.df = do.call(rbind, datalist);
+  return(final.df);
+  dev.off();
+}
 
+genotype = c("KF32") 
+names = c("Image_5708.csv", "Image_5709.csv", "Image_5710.csv", "Image_5711.csv");
+imgTable(names, inpt, out, bio = 2, genotypes, "exp")
+imgTecRep(names, inpt, out, genotype)
 
+"df = read.table(paste0(inpt, "Image_5709.csv"), sep=",", header=T)
+df.n
 
+d = dist(df.n)"
 
